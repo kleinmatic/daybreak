@@ -30,6 +30,10 @@ module Daybreak
       sync
     end
 
+    # Retrieve a value at key from the database. If the default value was specified
+    # when this database was created, that value will be set and returned. Aliased
+    # as <tt>get</tt>.
+    # @param key the value to retrieve from the database.
     def [](key)
       skey = @serializer.key_for(key)
       if @table.has_key?(skey)
@@ -40,6 +44,10 @@ module Daybreak
     end
     alias_method :get, :'[]'
 
+    # Set a key in the database to be written at some future date. If the data
+    # needs to be persisted immediately, call <tt>db.set(key, value, true)</tt>.
+    # @param [#to_s] key the key of the storage slot in the database
+    # @param value the value to store
     def []=(key, value)
       key = @serializer.key_for(key)
       @queue << [key, value]
@@ -47,35 +55,60 @@ module Daybreak
     end
     alias_method :set, :'[]='
 
+    # set! flushes data immediately to disk.
+    # @param key the key of the storage slot in the database
+    # @param value the value to store
     def set!(key, value)
       set(key, value)
       @mutex.synchronize { flush }
       value
     end
 
+    # Delete a key from the database
+    # @param key the key of the storage slot in the database
     def delete(key)
       key = @serializer.key_for(key)
       @queue << [key]
       @table.delete(key)
     end
 
+    # delete! immediately deletes the key on disk.
+    # @param key the key of the storage slot in the database
+    def delete!(key)
+      value = delete(key)
+      @mutex.synchronize { flush }
+      value
+    end
+
+    # Does this db have a value for this key?
+    # @param key the key to check if the DB has a key.
     def has_key?(key)
       @table.has_key?(@serializer.key_for(key))
     end
 
+    # Return the number of stored items.
+    # @return [Integer]
     def size
       @table.size
     end
     alias_method :length, :size
 
+    # Iterate over the key, value pairs in the database.
+    # @yield [key, value] blk the iterator for each key value pair.
+    # @yieldparam key the key.
+    # @yieldparam value the value from the database.
     def each(&block)
       @table.each(&block)
     end
 
+    # Return the keys in the db.
+    # @return [Array]
     def keys
       @table.keys
     end
 
+    # Sync the database with what is on disk, by first flushing changes, and
+    # then reading the file if necessary.
     def sync
       @mutex.synchronize do
         flush
@@ -83,6 +116,8 @@ module Daybreak
       end
     end
 
+    # Lock the database for an exclusive commit accross processes and threads
+    # @yield a block where every change to the database is synced
     def lock
       @mutex.synchronize do
         exclusive do
@@ -94,6 +129,7 @@ module Daybreak
       end
     end
 
+    # Remove all keys and values from the database
     def clear
       @mutex.synchronize do
         exclusive do
@@ -107,6 +143,7 @@ module Daybreak
       end
     end
 
+    # Compact the database to remove stale commits and reduce the file size.
     def compact
       tmpfile = "#{@file}-#{$$}-#{Thread.current.object_id}"
       tmp = File.open(tmpfile, 'wb')
@@ -132,6 +169,7 @@ module Daybreak
       File.unlink(tmpfile) if File.exists? tmpfile
     end
 
+    # Close the database for reading and writing.
     def close
       finish
       @in.close
